@@ -7,19 +7,37 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
-node_modules
-dist
-dist-ssr
+# Node dependencies
+node_modules/
+
+# Build output
+dist/
+dist-ssr/
+
+# Misc
 *.local
+/tmp
+
+# Solana/Anchor build artifacts & logs
+target/
+.anchor/
+program-id.json
+*.so
+
+# Environment variables (IMPORTANT for API keys!)
+.env
+*.env
+.env.*
 
 # Editor directories and files
+.idea/
 .vscode/*
 !.vscode/extensions.json
-.idea
-.DS_Store
 *.suo
 *.ntvs*
 *.njsproj
 *.sln
 *.sw?
-/tmp
+
+# OS generated files
+.DS_Store
