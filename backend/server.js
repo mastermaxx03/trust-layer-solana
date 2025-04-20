@@ -1,61 +1,109 @@
 // Import necessary packages
-require('dotenv').config() // Loads variables from .env file into process.env
+require('dotenv').config()
+// --- ADD THIS LOG ---
+console.log(
+  'API Key from .env:',
+  process.env.GEMINI_API_KEY ? `Loaded (length: ${process.env.GEMINI_API_KEY.length})` : 'NOT LOADED',
+)
+// --- END ADD ---
+
 const express = require('express')
 const cors = require('cors')
-// We will import and use GoogleGenerativeAI later when implementing the AI call
-// const { GoogleGenerativeAI } = require("@google/generative-ai");
+const { GoogleGenerativeAI, HarmCategory, HarmBlockThreshold } = require('@google/generative-ai')
 
-// Create an Express app
+// Initialize the Google AI Client (Make sure API Key is loaded above)
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY)
+// --- ADD THIS LOG ---
+console.log('genAI object created:', !!genAI)
+// --- END ADD ---
+
 const app = express()
-// Use port 3001 or specify PORT in your .env file
 const port = process.env.PORT || 3001
 
-// === Middleware ===
-app.use(cors()) // Enable Cross-Origin Resource Sharing (allows your frontend to call this)
-app.use(express.json()) // Allow the server to read JSON data in request bodies
+// Middleware
+app.use(cors())
+app.use(express.json())
 
-// === Routes ===
-// Basic route to check if the server is running
+// Routes
 app.get('/', (req, res) => {
   res.status(200).send('Backend server is alive!')
 })
 
-// The endpoint that will handle content moderation requests
 app.post('/moderate', async (req, res) => {
-  // Mark function as async for later API calls
+  // --- ADD THIS LOG ---
+  console.log('--- Entered /moderate endpoint ---')
+  // --- END ADD ---
   try {
-    // Get the text from the request body sent by the frontend
     const inputText = req.body.text
 
-    // Basic validation
     if (!inputText || typeof inputText !== 'string' || inputText.trim() === '') {
       console.log('Received invalid request: No text provided.')
       return res.status(400).json({ error: 'No text provided in request body' })
     }
 
-    console.log(`Received text for moderation: "${inputText.substring(0, 100)}..."`) // Log start of text
+    console.log(`Received text for moderation: "${inputText.substring(0, 100)}..."`)
 
-    // --- Placeholder for AI Logic ---
-    // >>> NEXT STEP: Add code here to call the Google Gemini API <<<
-    console.log('AI Moderation Logic Placeholder - SKIPPED FOR NOW')
-    const isFlagged = false // Dummy result for now
-    const flaggedCategory = null // Dummy result for now
-    // --- End Placeholder ---
+    // --- ADD THIS LOG ---
+    console.log('--- Preparing to call AI ---')
+    // --- END ADD ---
 
-    // Send response back to the frontend
+    // --- START: Google Gemini API Call Logic ---
+    const model = genAI.getGenerativeModel({
+      model: 'gemini-1.5-flash-latest',
+      safetySettings: [
+        { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_NONE },
+        { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_NONE },
+        { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.BLOCK_NONE },
+        { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_NONE },
+      ],
+    })
+
+    console.log('Calling Gemini API...')
+    const result = await model.generateContent(inputText)
+    const response = await result.response
+    console.log('Gemini Raw Response:', JSON.stringify(response, null, 2))
+
+    let isFlagged = false
+    let flaggedCategory = null
+    let highestSeverity = null
+
+    if (response.promptFeedback?.blockReason) {
+      isFlagged = true
+      flaggedCategory = response.promptFeedback.blockReason
+      highestSeverity = 'BLOCKED'
+      console.log(`Content blocked by API due to: ${flaggedCategory}`)
+    } else if (response.promptFeedback?.safetyRatings && response.promptFeedback.safetyRatings.length > 0) {
+      for (const rating of response.promptFeedback.safetyRatings) {
+        if (rating.probability === 'MEDIUM' || rating.probability === 'HIGH') {
+          isFlagged = true
+          flaggedCategory = rating.category
+          highestSeverity = rating.probability
+          // --- FIX CONSOLE LOG ---
+          console.log(`Content flagged: ${flaggedCategory} (${highestSeverity})`)
+          // --- END FIX ---
+          break
+        }
+      }
+    }
+    // --- END: Google Gemini API Call Logic ---
+
+    // --- FIX CONSOLE LOG ---
+    console.log(`Final decision: isFlagged=${isFlagged}, category=${flaggedCategory}`)
+    // --- END FIX ---
     res.status(200).json({
       originalText: inputText,
       isFlagged: isFlagged,
       category: flaggedCategory,
-      status: 'Moderation check complete (dummy result)', // Update this later
+      severity: highestSeverity,
+      status: `Moderation check complete. Flagged: ${isFlagged}`,
     })
   } catch (error) {
     console.error('Error in /moderate endpoint:', error)
-    res.status(500).json({ error: 'An internal server error occurred' })
+    res.status(500).json({ error: 'An internal server error occurred calling AI' })
   }
 })
 
-// === Start the Server ===
+// Start the Server
 app.listen(port, () => {
   console.log(`Backend server listening at http://localhost:${port}`)
 })
